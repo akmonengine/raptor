@@ -110,7 +110,7 @@ func BenchmarkEmitter_Compute(b *testing.B) {
 	loop:
 		for {
 			emitter.GenerateParticles(1000000, modelMatrix, 1.0)
-			emitter.Compute(float32(time.Now().Sub(elapsedTime).Seconds()), -9.8)
+			emitter.Compute(float32(time.Since(elapsedTime).Seconds()), -9.8)
 			elapsedTime = time.Now()
 
 			select {

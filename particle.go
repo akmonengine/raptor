@@ -68,14 +68,13 @@ type Particle struct {
 	Scale         float32
 	Opacity       float32
 
-	recycle                  bool
 	initialRotationVariation float32
 	initialScaleVariation    float32
 	initialOpacityVariation  float32
 }
 
 func (emitter *Emitter) Start() {
-	if emitter.Enabled == true && emitter.status == STATUS_DOWN {
+	if emitter.Enabled && emitter.status == STATUS_DOWN {
 		emitter.delayTimer = time.NewTimer(time.Duration(emitter.Delay * float32(time.Second)))
 		emitter.durationTimer = &time.Timer{}
 
@@ -99,7 +98,7 @@ func (emitter *Emitter) Stop() {
 
 func (emitter *Emitter) GenerateParticles(maxParticles int, modelMatrix mgl32.Mat4, timeScale float64) {
 	if emitter.status == STATUS_UP {
-		elapsedTime := time.Now().Sub(emitter.upAt)
+		elapsedTime := time.Since(emitter.upAt)
 		quantityToGenerate := (elapsedTime.Seconds() * float64(emitter.EmissionPerSecond)) - float64(emitter.totalEmitted)
 		quantityToGenerate = quantityToGenerate * timeScale
 		for i := 0; i < int(math.Round(quantityToGenerate)); i++ {
@@ -119,7 +118,7 @@ func (emitter *Emitter) Compute(elapsedTime float32, gravity float32) {
 
 	select {
 	case <-emitter.delayTimer.C:
-		if emitter.Looping == false {
+		if !emitter.Looping {
 			emitter.durationTimer = time.NewTimer(time.Duration(emitter.Duration * float32(time.Second)))
 		}
 		emitter.upAt = time.Now()
