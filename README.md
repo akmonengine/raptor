@@ -54,37 +54,40 @@ Once the Emitter is created, it needs to be started.
 ```go
 emitter.Start()
 ```
-Note that this call only applies and sets the status UP if the Emitter was not already started (i.e. status is DOWN).
-If its timer is over, it does not automatically reset to the status DOWN.
+Note that this call only applies if the Emitter was not already started: it then waits for its Delay, and
+emits for its Duration unless it loops. Both are counted on the time given to `Compute`, never on the wall
+clock: pausing, stepping or scaling the time of your game does the same to its emitters.
 
 If you need to stop an Emitter, you can call the stop function.
 ```go
 emitter.Stop()
 ```
-This call applies only if the status is UP. If a timer is set, it is not reset.
+The Particles already born live on; `Start` starts the Emitter again, its delay first.
 
 ### Update
 Each time your system needs to update the Particles, two calls are required:
-To generate new particles, as the times goes on:
+To advance the Emitter and its Particles by the time elapsed, call the Compute method in your game loop:
+```go
+emitter.Compute(0.01, -9.8)
+```
+- The first argument is the time elapsed since the previous call, in seconds: your game's time, scaled
+as your game scales it (x2.0 gives birth to twice the Particles in a second of the wall clock), 0 when
+it is paused.
+- The second argument is the gravity applied in your world. Terrestrial gravity is 9.8m/s².
+But your world could have a different gravity force, feel free to play with this parameter.
+
+Then give birth to the Particles the time owes:
 ```go
 parentModelMatrix := mgl32.Ident4()
-emitter.GenerateParticles(100, parentModelMatrix, 1.0)
+emitter.GenerateParticles(100, parentModelMatrix)
 ```
 - The first argument is a hard limit of the maximum particles allowed to exist in an emitter.
 It can be useful if your game engine sets this kind of configurable limits, for performance reasons.
 - The second argument is the parent Model Matrix (i.e. the computed position), so that the particle
 lives related to its parent's transform.
-- The third argument is the time scale. For example if you decide to accelerate up to x2.0, the number
-of generated Particles would need to be multiplied by x2.0.
 
-You can then update the positions of the Particles, calling the Compute method.
-This call would be applied in your game loop for example:
-```go
-emitter.Compute(0.01, -9.8)
-```
-- The first argument is the time elapsed between the previous call and the current time.
-- The second argument is the gravity applied in your world. Terrestrial gravity is 9.8m/s².
-But your world could have a different gravity force, feel free to play with this parameter.
+An Emitter of 100 Particles a second gives birth to 100 Particles in a second of the time given,
+however it is cut into steps.
 
 ### Fetch the Particles
 You can retrieve all the Particles attached to an Emitter, as a slice:

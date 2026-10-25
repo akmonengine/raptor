@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 	"testing"
-	"time"
 )
 
 func BenchmarkParticleBuilderFn(b *testing.B) {
@@ -66,14 +65,14 @@ func BenchmarkEmitter_GenerateParticles(b *testing.B) {
 		GravityEffect: 1.0,
 	}
 	emitter.Start()
-	emitter.Compute(1.0, -9.8)
-	time.Sleep(time.Second * 1)
+	emitter.Compute(0, -9.8)
 
 	modelMatrix := mgl32.Ident4()
 	for b.Loop() {
-		emitter.GenerateParticles(1000000, modelMatrix, 1.0)
+		// A second of emission, owed at once: 500 000 particles born.
+		emitter.Compute(1, -9.8)
+		emitter.GenerateParticles(1000000, modelMatrix)
 		emitter.particles = emitter.particles[:0]
-		time.Sleep(time.Second * 1)
 	}
 
 	b.ReportAllocs()
@@ -104,20 +103,10 @@ func BenchmarkEmitter_Compute(b *testing.B) {
 
 	modelMatrix := mgl32.Ident4()
 	for b.Loop() {
-		t := time.NewTimer(time.Second * 10)
-		elapsedTime := time.Now()
-
-	loop:
-		for {
-			emitter.GenerateParticles(1000000, modelMatrix, 1.0)
-			emitter.Compute(float32(time.Since(elapsedTime).Seconds()), -9.8)
-			elapsedTime = time.Now()
-
-			select {
-			case <-t.C:
-				break loop
-			default:
-			}
+		// Ten seconds of a game at 100 steps a second.
+		for range 1000 {
+			emitter.GenerateParticles(1000000, modelMatrix)
+			emitter.Compute(0.01, -9.8)
 		}
 	}
 
