@@ -1,12 +1,12 @@
 package raptor
 
 import (
-	"github.com/go-gl/mathgl/mgl32"
 	"maps"
 	"math"
 	"math/rand"
 	"slices"
-	"time"
+
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 const (
@@ -53,10 +53,14 @@ type Emitter struct {
 	ParticleBuilderFn ParticleBuilderFnInterface
 	particles         []Particle
 	status            int
-	upAt              time.Time
-	totalEmitted      int
-	durationTimer     *time.Timer
-	delayTimer        *time.Timer
+	// started tells Start was called: the delay counts down, then the emitter emits.
+	started bool
+	// delayLeft is the delay still to wait, in seconds of the time Compute is given.
+	delayLeft float32
+	// emitting is the time the emitter has been emitting since its delay ran out, in seconds of the
+	// time Compute is given; totalEmitted the particles born in it.
+	emitting     float64
+	totalEmitted int
 }
 
 type Particle struct {
@@ -73,59 +77,70 @@ type Particle struct {
 	initialOpacityVariation  float32
 }
 
+// Start starts an enabled emitter that is not emitting: it waits for its Delay, then emits — for its
+// Duration unless it loops. The time is the one Compute is given, never the wall clock's: a game that
+// pauses, steps or scales its time pauses, steps or scales its emitters (Unity's ParticleSystem on
+// Time.deltaTime).
 func (emitter *Emitter) Start() {
-	if emitter.Enabled && emitter.status == STATUS_DOWN {
-		emitter.delayTimer = time.NewTimer(time.Duration(emitter.Delay * float32(time.Second)))
-		emitter.durationTimer = &time.Timer{}
-
+	if emitter.Enabled && emitter.status == STATUS_DOWN && !emitter.started {
+		emitter.started, emitter.delayLeft, emitter.emitting, emitter.totalEmitted = true, emitter.Delay, 0, 0
 		if len(emitter.particles) == 0 {
 			emitter.particles = make([]Particle, 0, emitter.EmissionPerSecond)
 		}
 	}
 }
 
+// Stop stops the emission; the particles born live on. Start starts it again, its delay first.
 func (emitter *Emitter) Stop() {
-	if emitter.status == STATUS_UP {
-		emitter.totalEmitted = 0
-		emitter.delayTimer.Stop()
-
-		if emitter.durationTimer != nil {
-			emitter.durationTimer.Stop()
-		}
-		emitter.status = STATUS_DOWN
-	}
+	emitter.started, emitter.status, emitter.emitting, emitter.totalEmitted = false, STATUS_DOWN, 0, 0
 }
 
-func (emitter *Emitter) GenerateParticles(maxParticles int, modelMatrix mgl32.Mat4, timeScale float64) {
-	if emitter.status == STATUS_UP {
-		elapsedTime := time.Since(emitter.upAt)
-		quantityToGenerate := (elapsedTime.Seconds() * float64(emitter.EmissionPerSecond)) - float64(emitter.totalEmitted)
-		quantityToGenerate = quantityToGenerate * timeScale
-		for i := 0; i < int(math.Round(quantityToGenerate)); i++ {
-			if len(emitter.particles) < maxParticles {
-				emitter.addParticle(modelMatrix)
-			}
-
-			emitter.totalEmitted++
-		}
-	}
-}
-
-func (emitter *Emitter) Compute(elapsedTime float32, gravity float32) {
-	if !emitter.Enabled || emitter.delayTimer == nil {
+// GenerateParticles gives birth to the particles the emission owes: EmissionPerSecond for each second
+// the emitter has been emitting — up to its Duration when it does not loop —, the whole of it whatever
+// the steps it was cut in; at most maxParticles alive. modelMatrix places a particle born in WORLD_SPACE.
+// A non-looping emitter that has emitted its Duration stops.
+func (emitter *Emitter) GenerateParticles(maxParticles int, modelMatrix mgl32.Mat4) {
+	if emitter.status != STATUS_UP {
 		return
 	}
-
-	select {
-	case <-emitter.delayTimer.C:
-		if !emitter.Looping {
-			emitter.durationTimer = time.NewTimer(time.Duration(emitter.Duration * float32(time.Second)))
+	emitting := emitter.emitting
+	finished := !emitter.Looping && emitting >= float64(emitter.Duration)
+	if finished {
+		emitting = float64(emitter.Duration)
+	}
+	// A rounding margin: 1 s at 100 per second is 100 particles, even through float steps.
+	owed := int(math.Floor(emitting*float64(emitter.EmissionPerSecond)+emissionRounding)) - emitter.totalEmitted
+	for range owed {
+		if len(emitter.particles) < maxParticles {
+			emitter.addParticle(modelMatrix)
 		}
-		emitter.upAt = time.Now()
-		emitter.status = STATUS_UP
-	case <-emitter.durationTimer.C:
+		emitter.totalEmitted++
+	}
+	if finished {
 		emitter.Stop()
-	default:
+	}
+}
+
+// emissionRounding is the margin a count of particles owed is rounded down with, a thousandth of a
+// particle: the float error of a time summed from float32 steps (a hundred steps of 0.01 s make
+// 0.99999998 s), far under a particle.
+const emissionRounding = 1e-3
+
+// Compute advances the emitter by elapsedTime seconds — its delay, then its emission (GenerateParticles
+// gives birth to what it owes) — and each particle alive, under gravity (m/s², negative downward)
+// scaled by GravityEffect.
+func (emitter *Emitter) Compute(elapsedTime float32, gravity float32) {
+	if !emitter.Enabled {
+		return
+	}
+	if emitter.started && emitter.status == STATUS_DOWN {
+		emitter.delayLeft -= elapsedTime
+		if emitter.delayLeft <= 0 {
+			// The time past the delay counts as emission's.
+			emitter.status, emitter.emitting = STATUS_UP, float64(-emitter.delayLeft)
+		}
+	} else if emitter.status == STATUS_UP {
+		emitter.emitting += float64(elapsedTime)
 	}
 
 	for i := 0; i < len(emitter.particles); i++ {
